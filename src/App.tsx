@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed with bound AP5A)
+// Default PDB Pair (Adenylate Kinase: 4AKE = Open, 1AKE = Closed)
 const DEFAULT_OPEN_PDB = '4AKE';
 const DEFAULT_CLOSED_PDB = '1AKE';
 
@@ -14,11 +14,11 @@ export function App() {
   const [viewer1Instance, setViewer1Instance] = useState<any>(null);
   const [viewer2Instance, setViewer2Instance] = useState<any>(null);
 
-  // PDB Inputs
+  // PDB Form Inputs
   const [openInput, setOpenInput] = useState(DEFAULT_OPEN_PDB);
   const [closedInput, setClosedInput] = useState(DEFAULT_CLOSED_PDB);
 
-  // Loaded PDB States
+  // Active PDB States
   const [openPdbId, setOpenPdbId] = useState(DEFAULT_OPEN_PDB);
   const [closedPdbId, setClosedPdbId] = useState(DEFAULT_CLOSED_PDB);
 
@@ -29,7 +29,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   // ------------------------------------------
-  // Real-Time Synchronized Viewers Loop (60 FPS)
+  // Synchronized Camera Controls (60 FPS Loop)
   // ------------------------------------------
   useEffect(() => {
     if (!viewer1Instance || !viewer2Instance) return;
@@ -58,7 +58,7 @@ export function App() {
           viewer1Instance.render();
         }
       } catch (err) {
-        // Safe check
+        // Guard against unmounted viewer errors
       }
 
       animFrameId = requestAnimationFrame(syncLoop);
@@ -74,7 +74,7 @@ export function App() {
   }, [viewer1Instance, viewer2Instance]);
 
   // ------------------------------------------
-  // Fetch Both Open & Closed PDB Structures
+  // Fetch Open & Closed PDB Data
   // ------------------------------------------
   const fetchConformations = async (openId: string, closedId: string) => {
     const cleanOpen = openId.trim().toUpperCase();
@@ -112,13 +112,13 @@ export function App() {
     }
   };
 
-  // Initial load
+  // Initial Fetch
   useEffect(() => {
     fetchConformations(DEFAULT_OPEN_PDB, DEFAULT_CLOSED_PDB);
   }, []);
 
   // ------------------------------------------
-  // Initialize 3Dmol Viewers Dynamically
+  // Initialize 3Dmol Viewers
   // ------------------------------------------
   useEffect(() => {
     if (!container1Ref.current || !container2Ref.current) return;
@@ -129,11 +129,9 @@ export function App() {
 
       if (!$3Dmol || !$) return;
 
-      const darkBg = '#11111b';
-
       if (!viewer1Ref.current) {
         const v1 = $3Dmol.createViewer($(container1Ref.current), {
-          backgroundColor: darkBg,
+          backgroundColor: '#1e1e2e',
         });
         viewer1Ref.current = v1;
         setViewer1Instance(v1);
@@ -141,7 +139,7 @@ export function App() {
 
       if (!viewer2Ref.current) {
         const v2 = $3Dmol.createViewer($(container2Ref.current), {
-          backgroundColor: darkBg,
+          backgroundColor: '#11111b',
         });
         viewer2Ref.current = v2;
         setViewer2Instance(v2);
@@ -153,7 +151,7 @@ export function App() {
   }, []);
 
   // ------------------------------------------
-  // Render `newcartoon` Model Across Both
+  // Render Protein Structures
   // ------------------------------------------
   useEffect(() => {
     if (!openPdbData || !closedPdbData || !viewer1Ref.current || !viewer2Ref.current) return;
@@ -161,36 +159,17 @@ export function App() {
     const v1 = viewer1Ref.current;
     const v2 = viewer2Ref.current;
 
-    // Both backbones use identical `newcartoon` style + spectrum colors
-    const NEW_CARTOON_STYLE = {
-      newcartoon: {
-        colorscheme: 'spectrum',
-        thickness: 0.25,
-      },
-    };
-
-    // --- WINDOW 1: OPEN STATE ---
+    // Window 1: Open Conformation (Blue)
     v1.clear();
     v1.addModel(openPdbData, 'pdb');
-    v1.setStyle({ hetflag: false }, NEW_CARTOON_STYLE);
+    v1.setStyle({}, { cartoon: { color: '#89b4fa' } });
     v1.zoomTo();
     v1.render();
 
-    // --- WINDOW 2: CLOSED STATE ---
+    // Window 2: Closed Conformation (Green)
     v2.clear();
     v2.addModel(closedPdbData, 'pdb');
-    // Apply exact same `newcartoon` style to the protein backbone
-    v2.setStyle({ hetflag: false }, NEW_CARTOON_STYLE);
-
-    // Highlight bound substrate with a distinct color scheme (greenCarbon / magenta / cyan)
-    v2.setStyle(
-      { hetflag: true, resn: ['HOH', 'WAT'], invert: true },
-      {
-        stick: { colorscheme: 'cyanCarbon', radius: 0.25 },
-        sphere: { scale: 0.35, colorscheme: 'cyanCarbon' },
-      }
-    );
-
+    v2.setStyle({}, { cartoon: { color: '#a6e3a1' } });
     v2.zoomTo();
     v2.render();
   }, [openPdbData, closedPdbData]);
@@ -200,72 +179,40 @@ export function App() {
     fetchConformations(openInput, closedInput);
   };
 
-  const handlePreset = (openCode: string, closedCode: string) => {
-    setOpenInput(openCode);
-    setClosedInput(closedCode);
-    fetchConformations(openCode, closedCode);
-  };
-
   return (
     <div style={styles.container}>
       {/* HEADER & CONTROLS */}
       <header style={styles.header}>
-        <h1 style={styles.title}>Enzyme Induced-Fit: Open vs. Closed State</h1>
+        <h1 style={styles.title}>Enzyme Conformation Visualizer</h1>
 
-        <div style={styles.controlsRow}>
-          {/* Custom Open / Closed PDB Form */}
-          <form onSubmit={handleSubmit} style={styles.form}>
-            <label style={styles.label}>Open PDB:</label>
-            <input
-              type="text"
-              value={openInput}
-              onChange={(e) => setOpenInput(e.target.value)}
-              maxLength={4}
-              style={styles.input}
-            />
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <label style={styles.label}>Open PDB:</label>
+          <input
+            type="text"
+            value={openInput}
+            onChange={(e) => setOpenInput(e.target.value)}
+            maxLength={4}
+            style={styles.input}
+          />
 
-            <label style={styles.label}>Closed PDB:</label>
-            <input
-              type="text"
-              value={closedInput}
-              onChange={(e) => setClosedInput(e.target.value)}
-              maxLength={4}
-              style={styles.input}
-            />
+          <label style={styles.label}>Closed PDB:</label>
+          <input
+            type="text"
+            value={closedInput}
+            onChange={(e) => setClosedInput(e.target.value)}
+            maxLength={4}
+            style={styles.input}
+          />
 
-            <button type="submit" disabled={loading} style={styles.button}>
-              {loading ? 'Fetching...' : 'Compare States'}
-            </button>
-          </form>
-
-          {/* Quick Presets */}
-          <div style={styles.presets}>
-            <span style={styles.label}>Substrate Presets:</span>
-            <button
-              onClick={() => handlePreset('4AKE', '1AKE')}
-              style={styles.presetButton}
-            >
-              Adenylate Kinase (+AP5A)
-            </button>
-            <button
-              onClick={() => handlePreset('1OMP', '1ANF')}
-              style={styles.presetButton}
-            >
-              Maltose Binding (+Maltose)
-            </button>
-            <button
-              onClick={() => handlePreset('2HEX', '1HKG')}
-              style={styles.presetButton}
-            >
-              Hexokinase (+Glucose)
-            </button>
-          </div>
-        </div>
+          <button type="submit" disabled={loading} style={styles.button}>
+            {loading ? 'Loading...' : 'Compare States'}
+          </button>
+        </form>
 
         {error && <div style={styles.errorMessage}>{error}</div>}
       </header>
 
-      {/* SYNCHRONIZED SPLIT VIEWER */}
+      {/* SPLIT VIEWER */}
       <main style={styles.viewerContainer}>
         {/* Left Window: Open State */}
         <div style={styles.viewerBox}>
@@ -273,11 +220,9 @@ export function App() {
           <div ref={container1Ref} style={styles.canvas} />
         </div>
 
-        {/* Right Window: Closed State with Substrate */}
+        {/* Right Window: Closed State */}
         <div style={styles.viewerBox}>
-          <div style={styles.badgeClosed}>
-            Closed State + Bound Substrate ({closedPdbId}) 🩵
-          </div>
+          <div style={styles.badgeClosed}>Closed State ({closedPdbId})</div>
           <div ref={container2Ref} style={styles.canvas} />
         </div>
       </main>
@@ -306,19 +251,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: '#1e1e2e',
     borderBottom: '1px solid #313244',
     display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '16px',
+    flexWrap: 'wrap',
   },
   title: {
     margin: 0,
     fontSize: '20px',
     color: '#89b4fa',
-  },
-  controlsRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '24px',
-    flexWrap: 'wrap',
   },
   form: {
     display: 'flex',
@@ -348,23 +289,10 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 'bold',
     cursor: 'pointer',
   },
-  presets: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  presetButton: {
-    padding: '4px 10px',
-    borderRadius: '4px',
-    border: '1px solid #45475a',
-    backgroundColor: '#313244',
-    color: '#cdd6f4',
-    fontSize: '12px',
-    cursor: 'pointer',
-  },
   errorMessage: {
     color: '#f38ba8',
     fontSize: '14px',
+    width: '100%',
   },
   viewerContainer: {
     display: 'flex',
