@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed with bound AP5A substrate)
+// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed with bound AP5A)
 const DEFAULT_OPEN_PDB = '4AKE';
 const DEFAULT_CLOSED_PDB = '1AKE';
 
@@ -129,9 +129,11 @@ export function App() {
 
       if (!$3Dmol || !$) return;
 
+      const darkBg = '#11111b';
+
       if (!viewer1Ref.current) {
         const v1 = $3Dmol.createViewer($(container1Ref.current), {
-          backgroundColor: '#1e1e2e',
+          backgroundColor: darkBg,
         });
         viewer1Ref.current = v1;
         setViewer1Instance(v1);
@@ -139,7 +141,7 @@ export function App() {
 
       if (!viewer2Ref.current) {
         const v2 = $3Dmol.createViewer($(container2Ref.current), {
-          backgroundColor: '#11111b',
+          backgroundColor: darkBg,
         });
         viewer2Ref.current = v2;
         setViewer2Instance(v2);
@@ -151,7 +153,7 @@ export function App() {
   }, []);
 
   // ------------------------------------------
-  // Render Open & Closed (with Highlighted Substrate)
+  // Render Identical Cartoon Style Across Both
   // ------------------------------------------
   useEffect(() => {
     if (!openPdbData || !closedPdbData || !viewer1Ref.current || !viewer2Ref.current) return;
@@ -159,25 +161,24 @@ export function App() {
     const v1 = viewer1Ref.current;
     const v2 = viewer2Ref.current;
 
-    // --- WINDOW 1: OPEN STATE (Apo / Unbound) ---
+    // Define identical cartoon styling for both viewports
+    // You can change color to 'spectrum', 'secondary structure', or a fixed color like '#89b4fa'
+    const UNIFORM_CARTOON_STYLE = { cartoon: { colorscheme: 'spectrum' } };
+
+    // --- WINDOW 1: OPEN STATE ---
     v1.clear();
     v1.addModel(openPdbData, 'pdb');
-    // Protein cartoon
-    v1.setStyle({ hetflag: false }, { cartoon: { color: '#89b4fa' } });
-    // Any trace water/ions as small spheres
-    v1.setStyle({ hetflag: true }, { sphere: { scale: 0.25, color: '#a6adc8' } });
+    v1.setStyle({ hetflag: false }, UNIFORM_CARTOON_STYLE);
     v1.zoomTo();
     v1.render();
 
-    // --- WINDOW 2: CLOSED STATE (Holo / Substrate-Bound) ---
+    // --- WINDOW 2: CLOSED STATE ---
     v2.clear();
     v2.addModel(closedPdbData, 'pdb');
-    
-    // 1. Protein backbone in green cartoon style
-    v2.setStyle({ hetflag: false }, { cartoon: { color: '#a6e3a1' } });
+    // Apply exact same cartoon style to the protein backbone
+    v2.setStyle({ hetflag: false }, UNIFORM_CARTOON_STYLE);
 
-    // 2. Bound Substrate / Ligand / Heteroatoms highlighted in bright yellow/orange
-    // Exclude water (HOH / WAT) so it doesn't clutter the active site
+    // Highlight bound substrate/ligand in sticks & spheres
     v2.setStyle(
       { hetflag: true, resn: ['HOH', 'WAT'], invert: true },
       { 
@@ -205,7 +206,7 @@ export function App() {
     <div style={styles.container}>
       {/* HEADER & CONTROLS */}
       <header style={styles.header}>
-        <h1 style={styles.title}>Enzyme Induced-Fit: Open vs. Substrate-Bound Closed State</h1>
+        <h1 style={styles.title}>Enzyme Induced-Fit: Open vs. Closed State</h1>
 
         <div style={styles.controlsRow}>
           {/* Custom Open / Closed PDB Form */}
@@ -219,7 +220,7 @@ export function App() {
               style={styles.input}
             />
 
-            <label style={styles.label}>Closed + Substrate PDB:</label>
+            <label style={styles.label}>Closed PDB:</label>
             <input
               type="text"
               value={closedInput}
@@ -233,7 +234,7 @@ export function App() {
             </button>
           </form>
 
-          {/* Quick Presets for Common Open/Closed Pairs */}
+          {/* Quick Presets */}
           <div style={styles.presets}>
             <span style={styles.label}>Substrate Presets:</span>
             <button
@@ -264,7 +265,7 @@ export function App() {
       <main style={styles.viewerContainer}>
         {/* Left Window: Open State */}
         <div style={styles.viewerBox}>
-          <div style={styles.badgeOpen}>Open / Unbound State ({openPdbId})</div>
+          <div style={styles.badgeOpen}>Open State ({openPdbId})</div>
           <div ref={container1Ref} style={styles.canvas} />
         </div>
 
