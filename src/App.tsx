@@ -77,8 +77,8 @@ export default function App() {
   const openViewerInstance = useRef<any>(null);
   const closedViewerInstance = useRef<any>(null);
 
-  // Interaction Lock State to prevent recursive feedback loops during synchronization
-  const isSyncingRef = useRef<boolean>(false);
+  // Sync state reference to track interaction source
+  const activeViewerSource = useRef<'open' | 'closed' | null>(null);
 
   const activeEnzyme = enzymes[selectedKey];
 
@@ -136,9 +136,10 @@ export default function App() {
         // Native Functional States
         if (renderStyle === 'vdw') {
           viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
-          viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: 'spectrum' }, { hetflag: false });
+          // Fixed colorscheme definition for 3Dmol surfaces
+          viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: { prop: 'resi', gradient: 'roygb' } }, { hetflag: false });
         } else if (renderStyle === 'spheres') {
-          viewer.setStyle({ hetflag: false }, { sphere: { colorscheme: 'spectrum', scale: 0.9 } });
+          viewer.setStyle({ hetflag: false }, { sphere: { colorscheme: { prop: 'resi', gradient: 'roygb' }, scale: 0.9 } });
         } else {
           viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
         }
@@ -157,7 +158,6 @@ export default function App() {
     const trimmed = customPdbInput.trim().toUpperCase();
     if (!trimmed) return;
 
-    // Support single PDB (e.g. "1CAG") or comma-separated pair (e.g. "1HKG, 2YHX")
     const parts = trimmed.split(',').map((s) => s.trim()).filter(Boolean);
     const pdbOpen = parts[0];
     const pdbClosed = parts[1] || parts[0];
@@ -208,48 +208,33 @@ export default function App() {
     }
   }, [selectedKey, renderStyle, isDenatured, viewMode, enzymes]);
 
-  // 4. Synchronization Loop for Dual Viewports
+  // 4. Viewport Camera Synchronization via Animation Loop
   useEffect(() => {
     if (viewMode !== 'split') return;
 
-    let animFrameId: number;
+    let animId: number;
 
-    const syncViewers = () => {
+    const syncLoop = () => {
       const v1 = openViewerInstance.current;
       const v2 = closedViewerInstance.current;
 
-      if (v1 && v2 && !isSyncingRef.current) {
-        // Synchronize from Open (v1) to Closed (v2) if user interacts with Open
-        v1.setTransformCallback(() => {
-          if (isSyncingRef.current) return;
-          isSyncingRef.current = true;
+      if (v1 && v2) {
+        if (activeViewerSource.current === 'open') {
           const view = v1.getView();
           v2.setView(view);
           v2.render();
-          isSyncingRef.current = false;
-        });
-
-        // Synchronize from Closed (v2) to Open (v1) if user interacts with Closed
-        v2.setTransformCallback(() => {
-          if (isSyncingRef.current) return;
-          isSyncingRef.current = true;
+        } else if (activeViewerSource.current === 'closed') {
           const view = v2.getView();
           v1.setView(view);
           v1.render();
-          isSyncingRef.current = false;
-        });
+        }
       }
 
-      animFrameId = requestAnimationFrame(syncViewers);
+      animId = requestAnimationFrame(syncLoop);
     };
 
-    syncViewers();
-
-    return () => {
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      if (openViewerInstance.current) openViewerInstance.current.setTransformCallback(null);
-      if (closedViewerInstance.current) closedViewerInstance.current.setTransformCallback(null);
-    };
+    animId = requestAnimationFrame(syncLoop);
+    return () => cancelAnimationFrame(animId);
   }, [viewMode, selectedKey]);
 
   return (
@@ -258,7 +243,6 @@ export default function App() {
       {/* LEFT SIDEBAR */}
       <div style={{ width: '320px', padding: '20px 12px 20px 12px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
         <div>
-          {/* ENZYME VIEWER Header */}
           <div style={{ 
             backgroundColor: '#000000', 
             padding: '8px 12px', 
@@ -379,7 +363,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* VIEW MODE TOGGLE (SPLIT VS SINGLE) */}
+        {/* VIEW MODE TOGGLE */}
         <div>
           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.05em' }}>VIEWPORT MODE</label>
           <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
@@ -434,7 +418,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ENVIRONMENT VARIABLES (pH & TEMPERATURE SLIDERS) */}
+        {/* ENVIRONMENT VARIABLES */}
         <div style={{ backgroundColor: '#1e293b', padding: '12px', borderRadius: '8px', border: '1px solid #334155' }}>
           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', letterSpacing: '0.05em' }}>ENVIRONMENT VARIABLES</label>
           
@@ -592,7 +576,11 @@ export default function App() {
 
         {/* LEFT VIEWPORT: OPEN STATE */}
         {(viewMode === 'split' || viewMode === 'open') && (
-          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+          <div 
+            style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}
+            onMouseEnter={() => { activeViewerSource.current = 'open'; }}
+            onMouseLeave={() => { activeViewerSource.current = null; }}
+          >
             <div style={{
               position: 'absolute',
               top: '12px',
@@ -613,7 +601,11 @@ export default function App() {
 
         {/* RIGHT VIEWPORT: CLOSED STATE */}
         {(viewMode === 'split' || viewMode === 'closed') && (
-          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+          <div 
+            style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}
+            onMouseEnter={() => { activeViewerSource.current = 'closed'; }}
+            onMouseLeave={() => { activeViewerSource.current = null; }}
+          >
             <div style={{
               position: 'absolute',
               top: '12px',
