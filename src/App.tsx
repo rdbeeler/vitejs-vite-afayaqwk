@@ -1,408 +1,501 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed with bound AP5A)
-const DEFAULT_OPEN_PDB = '4AKE';
-const DEFAULT_CLOSED_PDB = '1AKE';
+interface EnzymeInfo {
+  name: string;
+  pdbOpen: string;
+  pdbClosed: string;
+  description: string;
+  optTempMin: number;
+  optTempMax: number;
+  optPhMin: number;
+  optPhMax: number;
+}
 
-export function App() {
-  const container1Ref = useRef<HTMLDivElement>(null);
-  const container2Ref = useRef<HTMLDivElement>(null);
+const ENZYMES: Record<string, EnzymeInfo> = {
+  Hexokinase: {
+    name: 'Hexokinase',
+    pdbOpen: '1HKG',
+    pdbClosed: '2YHX',
+    description: 'Watch the two distinct lobes clamp together in an induced fit around the glucose molecule.',
+    optTempMin: 15,
+    optTempMax: 50,
+    optPhMin: 5.5,
+    optPhMax: 8.5
+  },
+  'Maltose Binding Protein': {
+    name: 'Maltose Binding Protein',
+    pdbOpen: '1OMP',
+    pdbClosed: '1ANF',
+    description: 'A classic "Venus flytrap" hinge motion that wraps around sugar molecules.',
+    optTempMin: 15,
+    optTempMax: 52,
+    optPhMin: 5.0,
+    optPhMax: 9.0
+  },
+  'Adenylate Kinase': {
+    name: 'Adenylate Kinase',
+    pdbOpen: '4AKE',
+    pdbClosed: '1AKE',
+    description: 'Demonstrates a massive domain lid movement closing over the ATP/AMP substrate.',
+    optTempMin: 10,
+    optTempMax: 55,
+    optPhMin: 5.5,
+    optPhMax: 8.5
+  },
+  'DNA Polymerase': {
+    name: 'DNA Polymerase',
+    pdbOpen: '1T7P',
+    pdbClosed: '1L3U',
+    description: 'The finger domain closes over the incoming nucleotide to verify correct base pairing.',
+    optTempMin: 20,
+    optTempMax: 48,
+    optPhMin: 6.0,
+    optPhMax: 8.5
+  }
+};
 
-  const viewer1Ref = useRef<any>(null);
-  const viewer2Ref = useRef<any>(null);
+export default function App() {
+  const [selectedKey, setSelectedKey] = useState<string>('Hexokinase');
+  const [viewMode, setViewMode] = useState<'split' | 'open' | 'closed'>('split');
+  const [renderStyle, setRenderStyle] = useState<'vdw' | 'spheres' | 'cartoon'>('vdw');
+  
+  // Environmental Variables
+  const [temp, setTemp] = useState<number>(37);
+  const [ph, setPh] = useState<number>(7.0);
 
-  const [viewer1Instance, setViewer1Instance] = useState<any>(null);
-  const [viewer2Instance, setViewer2Instance] = useState<any>(null);
+  const [statusText, setStatusText] = useState<string>('Initializing 3D Engine...');
 
-  // PDB Inputs
-  const [openInput, setOpenInput] = useState(DEFAULT_OPEN_PDB);
-  const [closedInput, setClosedInput] = useState(DEFAULT_CLOSED_PDB);
+  // Dual Viewport Refs
+  const openViewerRef = useRef<HTMLDivElement>(null);
+  const closedViewerRef = useRef<HTMLDivElement>(null);
+  
+  const openViewerInstance = useRef<any>(null);
+  const closedViewerInstance = useRef<any>(null);
 
-  // Loaded PDB States
-  const [openPdbId, setOpenPdbId] = useState(DEFAULT_OPEN_PDB);
-  const [closedPdbId, setClosedPdbId] = useState(DEFAULT_CLOSED_PDB);
+  const activeEnzyme = ENZYMES[selectedKey];
 
-  const [openPdbData, setOpenPdbData] = useState<string>('');
-  const [closedPdbData, setClosedPdbData] = useState<string>('');
+  // Check if current environmental conditions cause denaturation
+  const isDenatured = 
+    temp < activeEnzyme.optTempMin || 
+    temp > activeEnzyme.optTempMax || 
+    ph < activeEnzyme.optPhMin || 
+    ph > activeEnzyme.optPhMax;
 
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // ------------------------------------------
-  // Real-Time Synchronized Viewers Loop (60 FPS)
-  // ------------------------------------------
+  // 1. Script Loader Pipeline
   useEffect(() => {
-    if (!viewer1Instance || !viewer2Instance) return;
+    let isMounted = true;
 
-    let animFrameId: number;
-    let activeViewer: 'v1' | 'v2' | null = null;
-
-    const v1Canvas = container1Ref.current;
-    const v2Canvas = container2Ref.current;
-
-    const handleMouseOver1 = () => { activeViewer = 'v1'; };
-    const handleMouseOver2 = () => { activeViewer = 'v2'; };
-
-    if (v1Canvas) v1Canvas.addEventListener('mouseenter', handleMouseOver1);
-    if (v2Canvas) v2Canvas.addEventListener('mouseenter', handleMouseOver2);
-
-    const syncLoop = () => {
+    const loadScripts = async () => {
       try {
-        if (activeViewer === 'v1' && viewer1Instance && viewer2Instance) {
-          const view1 = viewer1Instance.getView();
-          viewer2Instance.setView(view1);
-          viewer2Instance.render();
-        } else if (activeViewer === 'v2' && viewer1Instance && viewer2Instance) {
-          const view2 = viewer2Instance.getView();
-          viewer1Instance.setView(view2);
-          viewer1Instance.render();
+        if (!window || !(window as any).$) {
+          const jq = document.createElement('script');
+          jq.src = 'https://code.jquery.com/jquery-3.6.0.min.js';
+          document.head.appendChild(jq);
+          await new Promise((res) => (jq.onload = res));
         }
-      } catch (err) {
-        // Safe check
+
+        if (!(window as any).$3Dmol) {
+          const mol = document.createElement('script');
+          mol.src = 'https://3dmol.org/build/3Dmol-min.js';
+          document.head.appendChild(mol);
+          await new Promise((res) => (mol.onload = res));
+        }
+
+        if (isMounted) setStatusText('');
+      } catch (err: any) {
+        if (isMounted) setStatusText(`Engine Load Error: ${err.message}`);
       }
-
-      animFrameId = requestAnimationFrame(syncLoop);
     };
 
-    animFrameId = requestAnimationFrame(syncLoop);
-
-    return () => {
-      cancelAnimationFrame(animFrameId);
-      if (v1Canvas) v1Canvas.removeEventListener('mouseenter', handleMouseOver1);
-      if (v2Canvas) v2Canvas.removeEventListener('mouseenter', handleMouseOver2);
-    };
-  }, [viewer1Instance, viewer2Instance]);
-
-  // ------------------------------------------
-  // Fetch Both Open & Closed PDB Structures
-  // ------------------------------------------
-  const fetchConformations = async (openId: string, closedId: string) => {
-    const cleanOpen = openId.trim().toUpperCase();
-    const cleanClosed = closedId.trim().toUpperCase();
-
-    if (cleanOpen.length !== 4 || cleanClosed.length !== 4) {
-      setError('Please enter valid 4-character PDB IDs.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [resOpen, resClosed] = await Promise.all([
-        fetch(`https://files.rcsb.org/download/${cleanOpen}.pdb`),
-        fetch(`https://files.rcsb.org/download/${cleanClosed}.pdb`),
-      ]);
-
-      if (!resOpen.ok) throw new Error(`Open state PDB '${cleanOpen}' not found.`);
-      if (!resClosed.ok) throw new Error(`Closed state PDB '${cleanClosed}' not found.`);
-
-      const textOpen = await resOpen.text();
-      const textClosed = await resClosed.text();
-
-      setOpenPdbData(textOpen);
-      setClosedPdbData(textClosed);
-
-      setOpenPdbId(cleanOpen);
-      setClosedPdbId(cleanClosed);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch PDB structures.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Initial load
-  useEffect(() => {
-    fetchConformations(DEFAULT_OPEN_PDB, DEFAULT_CLOSED_PDB);
+    loadScripts();
+    return () => { isMounted = false; };
   }, []);
 
-  // ------------------------------------------
-  // Initialize 3Dmol Viewers Dynamically
-  // ------------------------------------------
-  useEffect(() => {
-    if (!container1Ref.current || !container2Ref.current) return;
+  // Helper function to apply styling to a specific viewer instance
+  const renderStructure = (viewer: any, pdbId: string) => {
+    if (!viewer) return;
+    const $3Dmol = (window as any).$3Dmol;
 
-    const initViewers = () => {
-      const $3Dmol = (window as any).$3Dmol;
-      const $ = (window as any).$;
+    viewer.clear();
+    viewer.removeAllSurfaces();
 
-      if (!$3Dmol || !$) return;
+    $3Dmol.download(`pdb:${pdbId}`, viewer, {}, () => {
+      if (isDenatured) {
+        // Denatured State (Uncoiled Red Wireframe)
+        viewer.setStyle({ hetflag: false }, { line: { color: '#ef4444', linewidth: 2 } });
+        viewer.setStyle({ hetflag: true }, { stick: { color: '#94a3b8', opacity: 0.3, radius: 0.15 } });
+      } else {
+        // Native Functional States
+        if (renderStyle === 'vdw') {
+          viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
+          viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: 'spectrum' }, { hetflag: false });
+        } else if (renderStyle === 'spheres') {
+          viewer.setStyle({ hetflag: false }, { sphere: { colorscheme: 'spectrum', scale: 0.9 } });
+        } else {
+          viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
+        }
 
-      const darkBg = '#11111b';
-
-      if (!viewer1Ref.current) {
-        const v1 = $3Dmol.createViewer($(container1Ref.current), {
-          backgroundColor: darkBg,
-        });
-        viewer1Ref.current = v1;
-        setViewer1Instance(v1);
+        // Substrate
+        viewer.setStyle({ hetflag: true }, { stick: { colorscheme: 'yellowCarbon', radius: 0.4 } });
       }
 
-      if (!viewer2Ref.current) {
-        const v2 = $3Dmol.createViewer($(container2Ref.current), {
-          backgroundColor: darkBg,
-        });
-        viewer2Ref.current = v2;
-        setViewer2Instance(v2);
-      }
-    };
-
-    const timer = setTimeout(initViewers, 200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // ------------------------------------------
-  // Render Protein with `cartoon` Style & Separate Ligands
-  // ------------------------------------------
-  useEffect(() => {
-    if (!openPdbData || !closedPdbData || !viewer1Ref.current || !viewer2Ref.current) return;
-
-    const v1 = viewer1Ref.current;
-    const v2 = viewer2Ref.current;
-
-    // --- WINDOW 1: OPEN STATE ---
-    v1.clear();
-    const m1 = v1.addModel(openPdbData, 'pdb');
-    
-    // Explicitly target protein residues for cartoon ribbon rendering
-    v1.setStyle({ hetflag: false }, { cartoon: { colorscheme: 'spectrum', style: 'oval' } });
-    
-    v1.zoomTo();
-    v1.render();
-
-    // --- WINDOW 2: CLOSED STATE ---
-    v2.clear();
-    const m2 = v2.addModel(closedPdbData, 'pdb');
-
-    // 1. Target protein backbone specifically for cartoon ribbon
-    v2.setStyle({ hetflag: false }, { cartoon: { colorscheme: 'spectrum', style: 'oval' } });
-
-    // 2. Target bound substrate / non-water heteroatoms for stick representation
-    v2.setStyle(
-      { hetflag: true, resn: ['HOH', 'WAT'], invert: true },
-      { 
-        stick: { colorscheme: 'cyanCarbon', radius: 0.3 },
-        sphere: { scale: 0.3, colorscheme: 'cyanCarbon' }
-      }
-    );
-
-    v2.zoomTo();
-    v2.render();
-  }, [openPdbData, closedPdbData]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchConformations(openInput, closedInput);
+      viewer.zoomTo();
+      viewer.render();
+    });
   };
 
-  const handlePreset = (openCode: string, closedCode: string) => {
-    setOpenInput(openCode);
-    setClosedInput(closedCode);
-    fetchConformations(openCode, closedCode);
-  };
+  // 2. Initialize and Render Open Viewer
+  useEffect(() => {
+    if (!(window as any).$3Dmol || !(window as any).$) return;
+    const $3Dmol = (window as any).$3Dmol;
+    const $ = (window as any).$;
+
+    if (openViewerRef.current && (viewMode === 'split' || viewMode === 'open')) {
+      if (!openViewerInstance.current) {
+        openViewerInstance.current = $3Dmol.createViewer($(openViewerRef.current), { backgroundColor: '#ffffff' });
+      }
+      renderStructure(openViewerInstance.current, activeEnzyme.pdbOpen);
+    }
+  }, [selectedKey, renderStyle, isDenatured, viewMode]);
+
+  // 3. Initialize and Render Closed Viewer
+  useEffect(() => {
+    if (!(window as any).$3Dmol || !(window as any).$) return;
+    const $3Dmol = (window as any).$3Dmol;
+    const $ = (window as any).$;
+
+    if (closedViewerRef.current && (viewMode === 'split' || viewMode === 'closed')) {
+      if (!closedViewerInstance.current) {
+        closedViewerInstance.current = $3Dmol.createViewer($(closedViewerRef.current), { backgroundColor: '#ffffff' });
+      }
+      renderStructure(closedViewerInstance.current, activeEnzyme.pdbClosed);
+    }
+  }, [selectedKey, renderStyle, isDenatured, viewMode]);
 
   return (
-    <div style={styles.container}>
-      {/* HEADER & CONTROLS */}
-      <header style={styles.header}>
-        <h1 style={styles.title}>Enzyme Induced-Fit: Open vs. Closed State</h1>
+    <div style={{ display: 'flex', width: '100vw', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#0f172a' }}>
+      
+      {/* LEFT SIDEBAR - Reduced horizontal padding for minimal left border */}
+      <div style={{ width: '320px', padding: '20px 12px 20px 12px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
+        <div>
+          {/* ENZYME VIEWER - White text inside black background container */}
+          <div style={{ 
+            backgroundColor: '#000000', 
+            padding: '8px 12px', 
+            borderRadius: '6px', 
+            border: '1px solid #334155',
+            display: 'inline-block',
+            marginBottom: '8px'
+          }}>
+            <h2 style={{ margin: 0, fontSize: '20px', color: '#ffffff', letterSpacing: '0.02em', fontWeight: 'bold' }}>
+              Enzyme Viewer
+            </h2>
+          </div>
+          <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Observe active site closure and environmental tolerance:</p>
+        </div>
 
-        <div style={styles.controlsRow}>
-          {/* Custom Open / Closed PDB Form */}
-          <form onSubmit={handleSubmit} style={styles.form}>
-            <label style={styles.label}>Open PDB:</label>
-            <input
-              type="text"
-              value={openInput}
-              onChange={(e) => setOpenInput(e.target.value)}
-              maxLength={4}
-              style={styles.input}
-            />
+        {/* ENZYME SELECTOR */}
+        <div>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.05em' }}>SELECT ENZYME</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+            {Object.keys(ENZYMES).map((key) => (
+              <button
+                key={key}
+                onClick={() => setSelectedKey(key)}
+                style={{
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: selectedKey === key ? '2px solid #3b82f6' : '1px solid #334155',
+                  backgroundColor: '#1e293b',
+                  color: '#ffffff',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+        </div>
 
-            <label style={styles.label}>Closed PDB:</label>
-            <input
-              type="text"
-              value={closedInput}
-              onChange={(e) => setClosedInput(e.target.value)}
-              maxLength={4}
-              style={styles.input}
-            />
-
-            <button type="submit" disabled={loading} style={styles.button}>
-              {loading ? 'Fetching...' : 'Compare States'}
-            </button>
-          </form>
-
-          {/* Quick Presets */}
-          <div style={styles.presets}>
-            <span style={styles.label}>Substrate Presets:</span>
+        {/* VIEW MODE TOGGLE (SPLIT VS SINGLE) */}
+        <div>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.05em' }}>VIEWPORT MODE</label>
+          <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
             <button
-              onClick={() => handlePreset('4AKE', '1AKE')}
-              style={styles.presetButton}
+              onClick={() => setViewMode('split')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: viewMode === 'split' ? '#3b82f6' : '#334155',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
             >
-              Adenylate Kinase (+AP5A)
+              Split View
             </button>
             <button
-              onClick={() => handlePreset('1OMP', '1ANF')}
-              style={styles.presetButton}
+              onClick={() => setViewMode('open')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: viewMode === 'open' ? '#3b82f6' : '#334155',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
             >
-              Maltose Binding (+Maltose)
+              Open Only
             </button>
             <button
-              onClick={() => handlePreset('2HEX', '1HKG')}
-              style={styles.presetButton}
+              onClick={() => setViewMode('closed')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: viewMode === 'closed' ? '#3b82f6' : '#334155',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
             >
-              Hexokinase (+Glucose)
+              Closed Only
             </button>
           </div>
         </div>
 
-        {error && <div style={styles.errorMessage}>{error}</div>}
-      </header>
-
-      {/* SYNCHRONIZED SPLIT VIEWER */}
-      <main style={styles.viewerContainer}>
-        {/* Left Window: Open State */}
-        <div style={styles.viewerBox}>
-          <div style={styles.badgeOpen}>Open State ({openPdbId})</div>
-          <div ref={container1Ref} style={styles.canvas} />
-        </div>
-
-        {/* Right Window: Closed State with Substrate */}
-        <div style={styles.viewerBox}>
-          <div style={styles.badgeClosed}>
-            Closed State + Bound Substrate ({closedPdbId}) 🩵
+        {/* ENVIRONMENT VARIABLES (pH & TEMPERATURE SLIDERS) */}
+        <div style={{ backgroundColor: '#1e293b', padding: '12px', borderRadius: '8px', border: '1px solid #334155' }}>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', letterSpacing: '0.05em' }}>ENVIRONMENT VARIABLES</label>
+          
+          {/* Temperature Slider */}
+          <div style={{ marginTop: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+              <span>Temperature</span>
+              <strong style={{ color: temp > activeEnzyme.optTempMax || temp < activeEnzyme.optTempMin ? '#ef4444' : '#22c55e' }}>
+                {temp}°C
+              </strong>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="90"
+              value={temp}
+              onChange={(e) => setTemp(parseInt(e.target.value))}
+              style={{ width: '100%', accentColor: temp > activeEnzyme.optTempMax ? '#ef4444' : '#3b82f6' }}
+            />
+            <div style={{ fontSize: '10px', color: '#64748b' }}>Optimal: {activeEnzyme.optTempMin}°C – {activeEnzyme.optTempMax}°C</div>
           </div>
-          <div ref={container2Ref} style={styles.canvas} />
+
+          {/* pH Slider */}
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+              <span>pH Level</span>
+              <strong style={{ color: ph > activeEnzyme.optPhMax || ph < activeEnzyme.optPhMin ? '#ef4444' : '#22c55e' }}>
+                {ph.toFixed(1)}
+              </strong>
+            </div>
+            <input
+              type="range"
+              min="1"
+              max="14"
+              step="0.5"
+              value={ph}
+              onChange={(e) => setPh(parseFloat(e.target.value))}
+              style={{ width: '100%', accentColor: ph > activeEnzyme.optPhMax || ph < activeEnzyme.optPhMin ? '#ef4444' : '#3b82f6' }}
+            />
+            <div style={{ fontSize: '10px', color: '#64748b' }}>Optimal: pH {activeEnzyme.optPhMin} – {activeEnzyme.optPhMax}</div>
+          </div>
+
+          <button
+            onClick={() => { setTemp(37); setPh(7.0); }}
+            style={{
+              marginTop: '10px',
+              width: '100%',
+              padding: '6px',
+              fontSize: '11px',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: '#334155',
+              color: '#ffffff',
+              cursor: 'pointer'
+            }}
+          >
+            Reset to Standard (37°C, pH 7.0)
+          </button>
         </div>
-      </main>
+
+        {/* DISPLAY MODE */}
+        <div>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8' }}>3D MODEL STYLE</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+            <button
+              onClick={() => setRenderStyle('vdw')}
+              disabled={isDenatured}
+              style={{
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: renderStyle === 'vdw' && !isDenatured ? '#3b82f6' : '#334155',
+                color: isDenatured ? '#64748b' : '#ffffff',
+                fontWeight: 'bold',
+                cursor: isDenatured ? 'not-allowed' : 'pointer'
+              }}
+            >
+              VDW Surface Envelope
+            </button>
+            <button
+              onClick={() => setRenderStyle('spheres')}
+              disabled={isDenatured}
+              style={{
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: renderStyle === 'spheres' && !isDenatured ? '#3b82f6' : '#334155',
+                color: isDenatured ? '#64748b' : '#ffffff',
+                fontWeight: 'bold',
+                cursor: isDenatured ? 'not-allowed' : 'pointer'
+              }}
+            >
+              VDW Space-Filling Spheres
+            </button>
+            <button
+              onClick={() => setRenderStyle('cartoon')}
+              disabled={isDenatured}
+              style={{
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: renderStyle === 'cartoon' && !isDenatured ? '#3b82f6' : '#334155',
+                color: isDenatured ? '#64748b' : '#ffffff',
+                fontWeight: 'bold',
+                cursor: isDenatured ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Cartoon Ribbon
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT CANVAS VIEWPORT AREA (SPLIT OR SINGLE) - Tightened left margin */}
+      <div style={{ flex: 1, margin: '15px 15px 15px 5px', display: 'flex', gap: '15px', position: 'relative' }}>
+        
+        {/* DENATURATION WARNING BANNER */}
+        {isDenatured && (
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '12px 24px',
+            backgroundColor: '#ef4444',
+            color: '#ffffff',
+            borderRadius: '8px',
+            boxShadow: '0 4px 16px rgba(239, 68, 68, 0.4)',
+            fontWeight: 'bold',
+            fontSize: '14px',
+            zIndex: 20,
+            textAlign: 'center'
+          }}>
+            ⚠️ ENZYME DENATURED — Tertiary structure disrupted. Substrate binding lost!
+          </div>
+        )}
+
+        {statusText && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            padding: '15px 25px',
+            backgroundColor: '#1e293b',
+            color: '#ffffff',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            fontWeight: 'bold',
+            zIndex: 20
+          }}>
+            {statusText}
+          </div>
+        )}
+
+        {/* LEFT VIEWPORT: OPEN STATE */}
+        {(viewMode === 'split' || viewMode === 'open') && (
+          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+            <div style={{
+              position: 'absolute',
+              top: '12px',
+              left: '12px',
+              backgroundColor: '#22c55e',
+              color: '#ffffff',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              zIndex: 10
+            }}>
+              UNBOUND (OPEN STATE)
+            </div>
+            <div ref={openViewerRef} style={{ width: '100%', height: '100%' }} />
+          </div>
+        )}
+
+        {/* RIGHT VIEWPORT: CLOSED STATE */}
+        {(viewMode === 'split' || viewMode === 'closed') && (
+          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+            <div style={{
+              position: 'absolute',
+              top: '12px',
+              left: '12px',
+              backgroundColor: '#3b82f6',
+              color: '#ffffff',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              zIndex: 10
+            }}>
+              BOUND (CLOSED STATE)
+            </div>
+            <div ref={closedViewerRef} style={{ width: '100%', height: '100%' }} />
+          </div>
+        )}
+
+        {/* DESCRIPTION CAPTION */}
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: isDenatured ? 'rgba(254, 242, 242, 0.95)' : 'rgba(248, 250, 252, 0.95)',
+          borderTop: '1px solid #e2e8f0',
+          padding: '12px',
+          fontSize: '13px',
+          color: isDenatured ? '#991b1b' : '#334155',
+          textAlign: 'center',
+          borderRadius: '0 0 12px 12px',
+          zIndex: 15
+        }}>
+          {isDenatured ? (
+            <strong>DENATURED STATE: Extreme {temp > activeEnzyme.optTempMax ? 'high temperature' : temp < activeEnzyme.optTempMin ? 'low temperature' : 'pH levels'} disrupted structural bonding.</strong>
+          ) : (
+            <span><strong>{activeEnzyme.name}</strong>: {activeEnzyme.description}</span>
+          )}
+        </div>
+
+      </div>
+
     </div>
   );
 }
-
-export default App;
-
-// ------------------------------------------
-// INLINE STYLES
-// ------------------------------------------
-const styles: { [key: string]: React.CSSProperties } = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    width: '100vw',
-    backgroundColor: '#181825',
-    color: '#cdd6f4',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
-    overflow: 'hidden',
-  },
-  header: {
-    padding: '16px 24px',
-    backgroundColor: '#1e1e2e',
-    borderBottom: '1px solid #313244',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  title: {
-    margin: 0,
-    fontSize: '20px',
-    color: '#89b4fa',
-  },
-  controlsRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '24px',
-    flexWrap: 'wrap',
-  },
-  form: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  label: {
-    fontSize: '14px',
-    color: '#a6adc8',
-  },
-  input: {
-    padding: '6px 10px',
-    borderRadius: '4px',
-    border: '1px solid #45475a',
-    backgroundColor: '#313244',
-    color: '#cdd6f4',
-    fontSize: '14px',
-    width: '70px',
-    textTransform: 'uppercase',
-  },
-  button: {
-    padding: '6px 14px',
-    borderRadius: '4px',
-    border: 'none',
-    backgroundColor: '#89b4fa',
-    color: '#11111b',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-  },
-  presets: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  presetButton: {
-    padding: '4px 10px',
-    borderRadius: '4px',
-    border: '1px solid #45475a',
-    backgroundColor: '#313244',
-    color: '#cdd6f4',
-    fontSize: '12px',
-    cursor: 'pointer',
-  },
-  errorMessage: {
-    color: '#f38ba8',
-    fontSize: '14px',
-  },
-  viewerContainer: {
-    display: 'flex',
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  viewerBox: {
-    flex: 1,
-    position: 'relative',
-    borderRight: '1px solid #313244',
-  },
-  canvas: {
-    width: '100%',
-    height: '100%',
-  },
-  badgeOpen: {
-    position: 'absolute',
-    top: '12px',
-    left: '12px',
-    zIndex: 10,
-    backgroundColor: 'rgba(137, 180, 250, 0.15)',
-    color: '#89b4fa',
-    padding: '6px 12px',
-    borderRadius: '6px',
-    fontSize: '13px',
-    fontWeight: 'bold',
-    border: '1px solid #89b4fa',
-    pointerEvents: 'none',
-  },
-  badgeClosed: {
-    position: 'absolute',
-    top: '12px',
-    left: '12px',
-    zIndex: 10,
-    backgroundColor: 'rgba(166, 227, 161, 0.15)',
-    color: '#a6e3a1',
-    padding: '6px 12px',
-    borderRadius: '6px',
-    fontSize: '13px',
-    fontWeight: 'bold',
-    border: '1px solid #a6e3a1',
-    pointerEvents: 'none',
-  },
-};
