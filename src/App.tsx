@@ -153,7 +153,7 @@ export function App() {
   }, []);
 
   // ------------------------------------------
-  // Render Identical Cartoon Style Across Both
+  // Render `newcartoon` Model Across Both
   // ------------------------------------------
   useEffect(() => {
     if (!openPdbData || !closedPdbData || !viewer1Ref.current || !viewer2Ref.current) return;
@@ -161,29 +161,33 @@ export function App() {
     const v1 = viewer1Ref.current;
     const v2 = viewer2Ref.current;
 
-    // Define identical cartoon styling for both viewports
-    // You can change color to 'spectrum', 'secondary structure', or a fixed color like '#89b4fa'
-    const UNIFORM_CARTOON_STYLE = { cartoon: { colorscheme: 'spectrum' } };
+    // Both backbones use identical `newcartoon` style + spectrum colors
+    const NEW_CARTOON_STYLE = {
+      newcartoon: {
+        colorscheme: 'spectrum',
+        thickness: 0.25,
+      },
+    };
 
     // --- WINDOW 1: OPEN STATE ---
     v1.clear();
     v1.addModel(openPdbData, 'pdb');
-    v1.setStyle({ hetflag: false }, UNIFORM_CARTOON_STYLE);
+    v1.setStyle({ hetflag: false }, NEW_CARTOON_STYLE);
     v1.zoomTo();
     v1.render();
 
     // --- WINDOW 2: CLOSED STATE ---
     v2.clear();
     v2.addModel(closedPdbData, 'pdb');
-    // Apply exact same cartoon style to the protein backbone
-    v2.setStyle({ hetflag: false }, UNIFORM_CARTOON_STYLE);
+    // Apply exact same `newcartoon` style to the protein backbone
+    v2.setStyle({ hetflag: false }, NEW_CARTOON_STYLE);
 
-    // Highlight bound substrate/ligand in sticks & spheres
+    // Highlight bound substrate with a distinct color scheme (greenCarbon / magenta / cyan)
     v2.setStyle(
       { hetflag: true, resn: ['HOH', 'WAT'], invert: true },
-      { 
-        stick: { colorscheme: 'yellowCarbon', radius: 0.25 },
-        sphere: { scale: 0.35, colorscheme: 'yellowCarbon' } 
+      {
+        stick: { colorscheme: 'cyanCarbon', radius: 0.25 },
+        sphere: { scale: 0.35, colorscheme: 'cyanCarbon' },
       }
     );
 
@@ -272,7 +276,7 @@ export function App() {
         {/* Right Window: Closed State with Substrate */}
         <div style={styles.viewerBox}>
           <div style={styles.badgeClosed}>
-            Closed State + Bound Substrate ({closedPdbId}) 🟡
+            Closed State + Bound Substrate ({closedPdbId}) 🩵
           </div>
           <div ref={container2Ref} style={styles.canvas} />
         </div>
