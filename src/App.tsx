@@ -11,7 +11,7 @@ interface EnzymeInfo {
   optPhMax: number;
 }
 
-const ENZYMES: Record<string, EnzymeInfo> = {
+const DEFAULT_ENZYMES: Record<string, EnzymeInfo> = {
   Hexokinase: {
     name: 'Hexokinase',
     pdbOpen: '1HKG',
@@ -55,10 +55,15 @@ const ENZYMES: Record<string, EnzymeInfo> = {
 };
 
 export default function App() {
+  const [enzymes, setEnzymes] = useState<Record<string, EnzymeInfo>>(DEFAULT_ENZYMES);
   const [selectedKey, setSelectedKey] = useState<string>('Hexokinase');
   const [viewMode, setViewMode] = useState<'split' | 'open' | 'closed'>('split');
   const [renderStyle, setRenderStyle] = useState<'vdw' | 'spheres' | 'cartoon'>('vdw');
   
+  // Custom PDB Input State
+  const [customPdbInput, setCustomPdbInput] = useState<string>('');
+  const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
+
   // Environmental Variables
   const [temp, setTemp] = useState<number>(37);
   const [ph, setPh] = useState<number>(7.0);
@@ -72,7 +77,10 @@ export default function App() {
   const openViewerInstance = useRef<any>(null);
   const closedViewerInstance = useRef<any>(null);
 
-  const activeEnzyme = ENZYMES[selectedKey];
+  // Sync state reference to track interaction source
+  const activeViewerSource = useRef<'open' | 'closed' | null>(null);
+
+  const activeEnzyme = enzymes[selectedKey];
 
   // Check if current environmental conditions cause denaturation
   const isDenatured = 
@@ -128,9 +136,10 @@ export default function App() {
         // Native Functional States
         if (renderStyle === 'vdw') {
           viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
-          viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: 'spectrum' }, { hetflag: false });
+          // Fixed colorscheme definition for 3Dmol surfaces
+          viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: { prop: 'resi', gradient: 'roygb' } }, { hetflag: false });
         } else if (renderStyle === 'spheres') {
-          viewer.setStyle({ hetflag: false }, { sphere: { colorscheme: 'spectrum', scale: 0.9 } });
+          viewer.setStyle({ hetflag: false }, { sphere: { colorscheme: { prop: 'resi', gradient: 'roygb' }, scale: 0.9 } });
         } else {
           viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
         }
@@ -142,6 +151,33 @@ export default function App() {
       viewer.zoomTo();
       viewer.render();
     });
+  };
+
+  // Handle Loading Custom PDB ID(s)
+  const handleLoadCustomPdb = () => {
+    const trimmed = customPdbInput.trim().toUpperCase();
+    if (!trimmed) return;
+
+    const parts = trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+    const pdbOpen = parts[0];
+    const pdbClosed = parts[1] || parts[0];
+    const customKey = `Custom (${pdbOpen}${parts[1] ? ` / ${pdbClosed}` : ''})`;
+
+    const newEnzyme: EnzymeInfo = {
+      name: customKey,
+      pdbOpen,
+      pdbClosed,
+      description: `Custom PDB Structure: ${pdbOpen}${parts[1] ? ` (Open) and ${pdbClosed} (Closed)` : ''}`,
+      optTempMin: 15,
+      optTempMax: 50,
+      optPhMin: 5.0,
+      optPhMax: 9.0
+    };
+
+    setEnzymes((prev) => ({ ...prev, [customKey]: newEnzyme }));
+    setSelectedKey(customKey);
+    setCustomPdbInput('');
+    setShowCustomInput(false);
   };
 
   // 2. Initialize and Render Open Viewer
@@ -156,7 +192,7 @@ export default function App() {
       }
       renderStructure(openViewerInstance.current, activeEnzyme.pdbOpen);
     }
-  }, [selectedKey, renderStyle, isDenatured, viewMode]);
+  }, [selectedKey, renderStyle, isDenatured, viewMode, enzymes]);
 
   // 3. Initialize and Render Closed Viewer
   useEffect(() => {
@@ -170,15 +206,43 @@ export default function App() {
       }
       renderStructure(closedViewerInstance.current, activeEnzyme.pdbClosed);
     }
-  }, [selectedKey, renderStyle, isDenatured, viewMode]);
+  }, [selectedKey, renderStyle, isDenatured, viewMode, enzymes]);
+
+  // 4. Viewport Camera Synchronization via Animation Loop
+  useEffect(() => {
+    if (viewMode !== 'split') return;
+
+    let animId: number;
+
+    const syncLoop = () => {
+      const v1 = openViewerInstance.current;
+      const v2 = closedViewerInstance.current;
+
+      if (v1 && v2) {
+        if (activeViewerSource.current === 'open') {
+          const view = v1.getView();
+          v2.setView(view);
+          v2.render();
+        } else if (activeViewerSource.current === 'closed') {
+          const view = v2.getView();
+          v1.setView(view);
+          v1.render();
+        }
+      }
+
+      animId = requestAnimationFrame(syncLoop);
+    };
+
+    animId = requestAnimationFrame(syncLoop);
+    return () => cancelAnimationFrame(animId);
+  }, [viewMode, selectedKey]);
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#0f172a' }}>
       
-      {/* LEFT SIDEBAR - Reduced horizontal padding for minimal left border */}
+      {/* LEFT SIDEBAR */}
       <div style={{ width: '320px', padding: '20px 12px 20px 12px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
         <div>
-          {/* ENZYME VIEWER - White text inside black background container */}
           <div style={{ 
             backgroundColor: '#000000', 
             padding: '8px 12px', 
@@ -198,7 +262,7 @@ export default function App() {
         <div>
           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.05em' }}>SELECT ENZYME</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-            {Object.keys(ENZYMES).map((key) => (
+            {Object.keys(enzymes).map((key) => (
               <button
                 key={key}
                 onClick={() => setSelectedKey(key)}
@@ -210,16 +274,96 @@ export default function App() {
                   color: '#ffffff',
                   fontWeight: 'bold',
                   cursor: 'pointer',
-                  textAlign: 'left'
+                  textAlign: 'left',
+                  fontSize: '12px'
                 }}
               >
                 {key}
               </button>
             ))}
           </div>
+
+          {/* CUSTOM PDB LOADER CONTROLS */}
+          <div style={{ marginTop: '10px' }}>
+            {!showCustomInput ? (
+              <button
+                onClick={() => setShowCustomInput(true)}
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  borderRadius: '6px',
+                  border: '1px dashed #3b82f6',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  color: '#38bdf8',
+                  fontWeight: 'bold',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  textAlign: 'center'
+                }}
+              >
+                + Load Custom PDB ID
+              </button>
+            ) : (
+              <div style={{ backgroundColor: '#1e293b', padding: '10px', borderRadius: '6px', border: '1px solid #3b82f6' }}>
+                <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>
+                  PDB CODE(S) (e.g. 1CAG or 1HKG, 2YHX)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 1CAG or 1HKG, 2YHX"
+                  value={customPdbInput}
+                  onChange={(e) => setCustomPdbInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleLoadCustomPdb(); }}
+                  style={{
+                    width: '100%',
+                    padding: '6px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid #334155',
+                    backgroundColor: '#0f172a',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    boxSizing: 'border-box',
+                    marginBottom: '8px'
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={handleLoadCustomPdb}
+                    style={{
+                      flex: 1,
+                      padding: '6px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#3b82f6',
+                      color: '#ffffff',
+                      fontWeight: 'bold',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Load PDBs
+                  </button>
+                  <button
+                    onClick={() => setShowCustomInput(false)}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      backgroundColor: '#334155',
+                      color: '#94a3b8',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* VIEW MODE TOGGLE (SPLIT VS SINGLE) */}
+        {/* VIEW MODE TOGGLE */}
         <div>
           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.05em' }}>VIEWPORT MODE</label>
           <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
@@ -274,7 +418,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ENVIRONMENT VARIABLES (pH & TEMPERATURE SLIDERS) */}
+        {/* ENVIRONMENT VARIABLES */}
         <div style={{ backgroundColor: '#1e293b', padding: '12px', borderRadius: '8px', border: '1px solid #334155' }}>
           <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', letterSpacing: '0.05em' }}>ENVIRONMENT VARIABLES</label>
           
@@ -388,7 +532,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* RIGHT CANVAS VIEWPORT AREA (SPLIT OR SINGLE) - Tightened left margin */}
+      {/* RIGHT CANVAS VIEWPORT AREA */}
       <div style={{ flex: 1, margin: '15px 15px 15px 5px', display: 'flex', gap: '15px', position: 'relative' }}>
         
         {/* DENATURATION WARNING BANNER */}
@@ -432,7 +576,11 @@ export default function App() {
 
         {/* LEFT VIEWPORT: OPEN STATE */}
         {(viewMode === 'split' || viewMode === 'open') && (
-          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+          <div 
+            style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}
+            onMouseEnter={() => { activeViewerSource.current = 'open'; }}
+            onMouseLeave={() => { activeViewerSource.current = null; }}
+          >
             <div style={{
               position: 'absolute',
               top: '12px',
@@ -445,7 +593,7 @@ export default function App() {
               fontSize: '12px',
               zIndex: 10
             }}>
-              UNBOUND (OPEN STATE)
+              UNBOUND / PDB 1: {activeEnzyme.pdbOpen} {viewMode === 'split' ? '🔗 Synchronized' : ''}
             </div>
             <div ref={openViewerRef} style={{ width: '100%', height: '100%' }} />
           </div>
@@ -453,7 +601,11 @@ export default function App() {
 
         {/* RIGHT VIEWPORT: CLOSED STATE */}
         {(viewMode === 'split' || viewMode === 'closed') && (
-          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+          <div 
+            style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}
+            onMouseEnter={() => { activeViewerSource.current = 'closed'; }}
+            onMouseLeave={() => { activeViewerSource.current = null; }}
+          >
             <div style={{
               position: 'absolute',
               top: '12px',
@@ -466,7 +618,7 @@ export default function App() {
               fontSize: '12px',
               zIndex: 10
             }}>
-              BOUND (CLOSED STATE)
+              BOUND / PDB 2: {activeEnzyme.pdbClosed} {viewMode === 'split' ? '🔗 Synchronized' : ''}
             </div>
             <div ref={closedViewerRef} style={{ width: '100%', height: '100%' }} />
           </div>
