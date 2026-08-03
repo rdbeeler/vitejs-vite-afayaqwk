@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react'; // <-- Changed dot to slash here!
+import react from '@vitejs.plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  // Replace 'vitejs-vite-afayaqwk' with your EXACT GitHub repository name
+  base: '/vitejs-vite-afayaqwk/',
 });
