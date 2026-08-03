@@ -56,7 +56,7 @@ const ENZYMES: Record<string, EnzymeInfo> = {
 
 export default function App() {
   const [selectedKey, setSelectedKey] = useState<string>('Hexokinase');
-  const [stateMode, setStateMode] = useState<'open' | 'closed'>('open');
+  const [viewMode, setViewMode] = useState<'split' | 'open' | 'closed'>('split');
   const [renderStyle, setRenderStyle] = useState<'vdw' | 'spheres' | 'cartoon'>('vdw');
   
   // Environmental Variables
@@ -65,12 +65,16 @@ export default function App() {
 
   const [statusText, setStatusText] = useState<string>('Initializing 3D Engine...');
 
-  const viewerRef = useRef<HTMLDivElement>(null);
-  const viewerInstance = useRef<any>(null);
+  // Dual Viewport Refs
+  const openViewerRef = useRef<HTMLDivElement>(null);
+  const closedViewerRef = useRef<HTMLDivElement>(null);
+  
+  const openViewerInstance = useRef<any>(null);
+  const closedViewerInstance = useRef<any>(null);
 
   const activeEnzyme = ENZYMES[selectedKey];
 
-  // Check if current environmental conditions exceed enzyme tolerances
+  // Check if current environmental conditions cause denaturation
   const isDenatured = 
     temp < activeEnzyme.optTempMin || 
     temp > activeEnzyme.optTempMax || 
@@ -97,14 +101,7 @@ export default function App() {
           await new Promise((res) => (mol.onload = res));
         }
 
-        if (viewerRef.current && !viewerInstance.current && isMounted) {
-          const $3Dmol = (window as any).$3Dmol;
-          const $ = (window as any).$;
-          viewerInstance.current = $3Dmol.createViewer($(viewerRef.current), {
-            backgroundColor: '#ffffff'
-          });
-          setStatusText('');
-        }
+        if (isMounted) setStatusText('');
       } catch (err: any) {
         if (isMounted) setStatusText(`Engine Load Error: ${err.message}`);
       }
@@ -114,47 +111,66 @@ export default function App() {
     return () => { isMounted = false; };
   }, []);
 
-  // 2. Fetch Structure and Apply Native or Denatured Visualization
-  useEffect(() => {
-    if (!viewerInstance.current) return;
-
+  // Helper function to apply styling to a specific viewer instance
+  const renderStructure = (viewer: any, pdbId: string) => {
+    if (!viewer) return;
     const $3Dmol = (window as any).$3Dmol;
-    const targetPdb = stateMode === 'open' ? activeEnzyme.pdbOpen : activeEnzyme.pdbClosed;
-    const v = viewerInstance.current;
 
-    setStatusText(`Downloading PDB ${targetPdb}...`);
-    v.clear();
-    v.removeAllSurfaces();
+    viewer.clear();
+    viewer.removeAllSurfaces();
 
-    $3Dmol.download(`pdb:${targetPdb}`, v, {}, () => {
-      
+    $3Dmol.download(`pdb:${pdbId}`, viewer, {}, () => {
       if (isDenatured) {
-        // --- DENATURED STATE VISUALIZATION ---
-        // Strip tertiary structure, render as uncoiled, discolored wireframe/thin sticks
-        v.setStyle({ hetflag: false }, { line: { color: '#ef4444', linewidth: 2 } });
-        
-        // Substrate loses active site fit (faded out)
-        v.setStyle({ hetflag: true }, { stick: { color: '#94a3b8', opacity: 0.3, radius: 0.15 } });
+        // Denatured State (Uncoiled Red Wireframe)
+        viewer.setStyle({ hetflag: false }, { line: { color: '#ef4444', linewidth: 2 } });
+        viewer.setStyle({ hetflag: true }, { stick: { color: '#94a3b8', opacity: 0.3, radius: 0.15 } });
       } else {
-        // --- NATIVE FUNCTIONAL STATE VISUALIZATION ---
+        // Native Functional States
         if (renderStyle === 'vdw') {
-          v.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
-          v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: 'spectrum' }, { hetflag: false });
+          viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
+          viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.65, colorscheme: 'spectrum' }, { hetflag: false });
         } else if (renderStyle === 'spheres') {
-          v.setStyle({ hetflag: false }, { sphere: { colorscheme: 'spectrum', scale: 0.9 } });
+          viewer.setStyle({ hetflag: false }, { sphere: { colorscheme: 'spectrum', scale: 0.9 } });
         } else {
-          v.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
+          viewer.setStyle({ hetflag: false }, { cartoon: { color: 'spectrum' } });
         }
 
-        // Active substrate
-        v.setStyle({ hetflag: true }, { stick: { colorscheme: 'yellowCarbon', radius: 0.4 } });
+        // Substrate
+        viewer.setStyle({ hetflag: true }, { stick: { colorscheme: 'yellowCarbon', radius: 0.4 } });
       }
 
-      v.zoomTo();
-      v.render();
-      setStatusText('');
+      viewer.zoomTo();
+      viewer.render();
     });
-  }, [selectedKey, stateMode, renderStyle, isDenatured]);
+  };
+
+  // 2. Initialize and Render Open Viewer
+  useEffect(() => {
+    if (!(window as any).$3Dmol || !(window as any).$) return;
+    const $3Dmol = (window as any).$3Dmol;
+    const $ = (window as any).$;
+
+    if (openViewerRef.current && (viewMode === 'split' || viewMode === 'open')) {
+      if (!openViewerInstance.current) {
+        openViewerInstance.current = $3Dmol.createViewer($(openViewerRef.current), { backgroundColor: '#ffffff' });
+      }
+      renderStructure(openViewerInstance.current, activeEnzyme.pdbOpen);
+    }
+  }, [selectedKey, renderStyle, isDenatured, viewMode]);
+
+  // 3. Initialize and Render Closed Viewer
+  useEffect(() => {
+    if (!(window as any).$3Dmol || !(window as any).$) return;
+    const $3Dmol = (window as any).$3Dmol;
+    const $ = (window as any).$;
+
+    if (closedViewerRef.current && (viewMode === 'split' || viewMode === 'closed')) {
+      if (!closedViewerInstance.current) {
+        closedViewerInstance.current = $3Dmol.createViewer($(closedViewerRef.current), { backgroundColor: '#ffffff' });
+      }
+      renderStructure(closedViewerInstance.current, activeEnzyme.pdbClosed);
+    }
+  }, [selectedKey, renderStyle, isDenatured, viewMode]);
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#0f172a' }}>
@@ -162,7 +178,7 @@ export default function App() {
       {/* LEFT SIDEBAR */}
       <div style={{ width: '320px', padding: '20px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
         <div>
-          <h2 style={{ margin: '0 0 5px 0', fontSize: '20px' }}>Enzyme Viewer</h2>
+          <h2 style={{ margin: '0 0 5px 0', fontSize: '20px', color: '#ffffff', fontWeight: 'bold' }}>Enzyme Viewer</h2>
           <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Observe active site closure and environmental tolerance:</p>
         </div>
 
@@ -188,6 +204,61 @@ export default function App() {
                 {key}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* VIEW MODE TOGGLE (SPLIT VS SINGLE) */}
+        <div>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.05em' }}>VIEWPORT MODE</label>
+          <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+            <button
+              onClick={() => setViewMode('split')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: viewMode === 'split' ? '#3b82f6' : '#334155',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              Split View
+            </button>
+            <button
+              onClick={() => setViewMode('open')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: viewMode === 'open' ? '#3b82f6' : '#334155',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              Open Only
+            </button>
+            <button
+              onClick={() => setViewMode('closed')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: viewMode === 'closed' ? '#3b82f6' : '#334155',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              Closed Only
+            </button>
           </div>
         </div>
 
@@ -234,7 +305,6 @@ export default function App() {
             <div style={{ fontSize: '10px', color: '#64748b' }}>Optimal: pH {activeEnzyme.optPhMin} – {activeEnzyme.optPhMax}</div>
           </div>
 
-          {/* Reset Environment Button */}
           <button
             onClick={() => { setTemp(37); setPh(7.0); }}
             style={{
@@ -255,7 +325,7 @@ export default function App() {
 
         {/* DISPLAY MODE */}
         <div>
-          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8' }}>DISPLAY MODE</label>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8' }}>3D MODEL STYLE</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
             <button
               onClick={() => setRenderStyle('vdw')}
@@ -304,49 +374,12 @@ export default function App() {
             </button>
           </div>
         </div>
-
-        {/* CONFORMATION TOGGLE */}
-        <div>
-          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8' }}>CONFORMATION</label>
-          <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-            <button
-              onClick={() => setStateMode('open')}
-              style={{
-                flex: 1,
-                padding: '10px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: stateMode === 'open' ? '#22c55e' : '#334155',
-                color: '#ffffff',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Open State
-            </button>
-            <button
-              onClick={() => setStateMode('closed')}
-              style={{
-                flex: 1,
-                padding: '10px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: stateMode === 'closed' ? '#22c55e' : '#334155',
-                color: '#ffffff',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Closed State
-            </button>
-          </div>
-        </div>
       </div>
 
-      {/* CANVAS VIEWPORT */}
-      <div style={{ flex: 1, margin: '15px', borderRadius: '12px', backgroundColor: '#ffffff', position: 'relative', overflow: 'hidden' }}>
+      {/* RIGHT CANVAS VIEWPORT AREA (SPLIT OR SINGLE) */}
+      <div style={{ flex: 1, margin: '15px', display: 'flex', gap: '15px', position: 'relative' }}>
         
-        {/* Denaturation Alert Banner */}
+        {/* DENATURATION WARNING BANNER */}
         {isDenatured && (
           <div style={{
             position: 'absolute',
@@ -360,10 +393,10 @@ export default function App() {
             boxShadow: '0 4px 16px rgba(239, 68, 68, 0.4)',
             fontWeight: 'bold',
             fontSize: '14px',
-            zIndex: 10,
+            zIndex: 20,
             textAlign: 'center'
           }}>
-            ⚠️ ENZYME DENATURED — Tertiary structure uncoiled. Catalytic binding lost!
+            ⚠️ ENZYME DENATURED — Tertiary structure disrupted. Substrate binding lost!
           </div>
         )}
 
@@ -379,14 +412,55 @@ export default function App() {
             borderRadius: '8px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             fontWeight: 'bold',
-            zIndex: 10
+            zIndex: 20
           }}>
             {statusText}
           </div>
         )}
 
-        <div ref={viewerRef} style={{ width: '100%', height: '100%' }} />
+        {/* LEFT VIEWPORT: OPEN STATE */}
+        {(viewMode === 'split' || viewMode === 'open') && (
+          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+            <div style={{
+              position: 'absolute',
+              top: '12px',
+              left: '12px',
+              backgroundColor: '#22c55e',
+              color: '#ffffff',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              zIndex: 10
+            }}>
+              UNBOUND (OPEN STATE)
+            </div>
+            <div ref={openViewerRef} style={{ width: '100%', height: '100%' }} />
+          </div>
+        )}
 
+        {/* RIGHT VIEWPORT: CLOSED STATE */}
+        {(viewMode === 'split' || viewMode === 'closed') && (
+          <div style={{ flex: 1, backgroundColor: '#ffffff', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+            <div style={{
+              position: 'absolute',
+              top: '12px',
+              left: '12px',
+              backgroundColor: '#3b82f6',
+              color: '#ffffff',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              zIndex: 10
+            }}>
+              BOUND (CLOSED STATE)
+            </div>
+            <div ref={closedViewerRef} style={{ width: '100%', height: '100%' }} />
+          </div>
+        )}
+
+        {/* DESCRIPTION CAPTION */}
         <div style={{
           position: 'absolute',
           bottom: 0,
@@ -397,14 +471,17 @@ export default function App() {
           padding: '12px',
           fontSize: '13px',
           color: isDenatured ? '#991b1b' : '#334155',
-          textAlign: 'center'
+          textAlign: 'center',
+          borderRadius: '0 0 12px 12px',
+          zIndex: 15
         }}>
           {isDenatured ? (
-            <strong>DENATURED STATE: Extreme {temp > activeEnzyme.optTempMax ? 'high temperature' : temp < activeEnzyme.optTempMin ? 'low temperature' : 'pH levels'} disrupted hydrogen bonds & hydrophobic interactions.</strong>
+            <strong>DENATURED STATE: Extreme {temp > activeEnzyme.optTempMax ? 'high temperature' : temp < activeEnzyme.optTempMin ? 'low temperature' : 'pH levels'} disrupted structural bonding.</strong>
           ) : (
-            <span><strong>{activeEnzyme.name} ({stateMode.toUpperCase()} STATE)</strong>: {activeEnzyme.description}</span>
+            <span><strong>{activeEnzyme.name}</strong>: {activeEnzyme.description}</span>
           )}
         </div>
+
       </div>
 
     </div>
