@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed)
+// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed with bound AP5A substrate)
 const DEFAULT_OPEN_PDB = '4AKE';
 const DEFAULT_CLOSED_PDB = '1AKE';
 
@@ -89,7 +89,6 @@ export function App() {
     setError(null);
 
     try {
-      // Fetch both PDB files concurrently
       const [resOpen, resClosed] = await Promise.all([
         fetch(`https://files.rcsb.org/download/${cleanOpen}.pdb`),
         fetch(`https://files.rcsb.org/download/${cleanClosed}.pdb`),
@@ -152,7 +151,7 @@ export function App() {
   }, []);
 
   // ------------------------------------------
-  // Render Open (Left) & Closed (Right) Structures
+  // Render Open & Closed (with Highlighted Substrate)
   // ------------------------------------------
   useEffect(() => {
     if (!openPdbData || !closedPdbData || !viewer1Ref.current || !viewer2Ref.current) return;
@@ -160,17 +159,33 @@ export function App() {
     const v1 = viewer1Ref.current;
     const v2 = viewer2Ref.current;
 
-    // Window 1: Open Conformation
+    // --- WINDOW 1: OPEN STATE (Apo / Unbound) ---
     v1.clear();
     v1.addModel(openPdbData, 'pdb');
-    v1.setStyle({}, { cartoon: { color: '#89b4fa' } }); // Blue theme for Open
+    // Protein cartoon
+    v1.setStyle({ hetflag: false }, { cartoon: { color: '#89b4fa' } });
+    // Any trace water/ions as small spheres
+    v1.setStyle({ hetflag: true }, { sphere: { scale: 0.25, color: '#a6adc8' } });
     v1.zoomTo();
     v1.render();
 
-    // Window 2: Closed Conformation
+    // --- WINDOW 2: CLOSED STATE (Holo / Substrate-Bound) ---
     v2.clear();
     v2.addModel(closedPdbData, 'pdb');
-    v2.setStyle({}, { cartoon: { color: '#a6e3a1' } }); // Green theme for Closed
+    
+    // 1. Protein backbone in green cartoon style
+    v2.setStyle({ hetflag: false }, { cartoon: { color: '#a6e3a1' } });
+
+    // 2. Bound Substrate / Ligand / Heteroatoms highlighted in bright yellow/orange
+    // Exclude water (HOH / WAT) so it doesn't clutter the active site
+    v2.setStyle(
+      { hetflag: true, resn: ['HOH', 'WAT'], invert: true },
+      { 
+        stick: { colorscheme: 'yellowCarbon', radius: 0.25 },
+        sphere: { scale: 0.35, colorscheme: 'yellowCarbon' } 
+      }
+    );
+
     v2.zoomTo();
     v2.render();
   }, [openPdbData, closedPdbData]);
@@ -190,7 +205,7 @@ export function App() {
     <div style={styles.container}>
       {/* HEADER & CONTROLS */}
       <header style={styles.header}>
-        <h1 style={styles.title}>Conformational Change Viewer: Open vs. Closed State</h1>
+        <h1 style={styles.title}>Enzyme Induced-Fit: Open vs. Substrate-Bound Closed State</h1>
 
         <div style={styles.controlsRow}>
           {/* Custom Open / Closed PDB Form */}
@@ -204,7 +219,7 @@ export function App() {
               style={styles.input}
             />
 
-            <label style={styles.label}>Closed PDB:</label>
+            <label style={styles.label}>Closed + Substrate PDB:</label>
             <input
               type="text"
               value={closedInput}
@@ -220,24 +235,24 @@ export function App() {
 
           {/* Quick Presets for Common Open/Closed Pairs */}
           <div style={styles.presets}>
-            <span style={styles.label}>Presets:</span>
+            <span style={styles.label}>Substrate Presets:</span>
             <button
               onClick={() => handlePreset('4AKE', '1AKE')}
               style={styles.presetButton}
             >
-              Adenylate Kinase (4AKE / 1AKE)
+              Adenylate Kinase (+AP5A)
             </button>
             <button
               onClick={() => handlePreset('1OMP', '1ANF')}
               style={styles.presetButton}
             >
-              Maltose Binding (1OMP / 1ANF)
+              Maltose Binding (+Maltose)
             </button>
             <button
               onClick={() => handlePreset('2HEX', '1HKG')}
               style={styles.presetButton}
             >
-              Hexokinase (2HEX / 1HKG)
+              Hexokinase (+Glucose)
             </button>
           </div>
         </div>
@@ -249,13 +264,15 @@ export function App() {
       <main style={styles.viewerContainer}>
         {/* Left Window: Open State */}
         <div style={styles.viewerBox}>
-          <div style={styles.badgeOpen}>Open State ({openPdbId})</div>
+          <div style={styles.badgeOpen}>Open / Unbound State ({openPdbId})</div>
           <div ref={container1Ref} style={styles.canvas} />
         </div>
 
-        {/* Right Window: Closed State */}
+        {/* Right Window: Closed State with Substrate */}
         <div style={styles.viewerBox}>
-          <div style={styles.badgeClosed}>Closed State ({closedPdbId})</div>
+          <div style={styles.badgeClosed}>
+            Closed State + Bound Substrate ({closedPdbId}) 🟡
+          </div>
           <div ref={container2Ref} style={styles.canvas} />
         </div>
       </main>
