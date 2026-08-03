@@ -175,10 +175,22 @@ export default function App() {
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#0f172a' }}>
       
-      {/* LEFT SIDEBAR */}
-      <div style={{ width: '320px', padding: '20px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
+      {/* LEFT SIDEBAR - Reduced horizontal padding for minimal left border */}
+      <div style={{ width: '320px', padding: '20px 12px 20px 12px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
         <div>
-          <h2 style={{ margin: '0 0 5px 0', fontSize: '20px' }}>Enzyme Viewer</h2>
+          {/* ENZYME VIEWER - White text inside black background container */}
+          <div style={{ 
+            backgroundColor: '#000000', 
+            padding: '8px 12px', 
+            borderRadius: '6px', 
+            border: '1px solid #334155',
+            display: 'inline-block',
+            marginBottom: '8px'
+          }}>
+            <h2 style={{ margin: 0, fontSize: '20px', color: '#ffffff', letterSpacing: '0.02em', fontWeight: 'bold' }}>
+              Enzyme Viewer
+            </h2>
+          </div>
           <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Observe active site closure and environmental tolerance:</p>
         </div>
 
@@ -376,8 +388,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* RIGHT CANVAS VIEWPORT AREA (SPLIT OR SINGLE) */}
-      <div style={{ flex: 1, margin: '15px', display: 'flex', gap: '15px', position: 'relative' }}>
+      {/* RIGHT CANVAS VIEWPORT AREA (SPLIT OR SINGLE) - Tightened left margin */}
+      <div style={{ flex: 1, margin: '15px 15px 15px 5px', display: 'flex', gap: '15px', position: 'relative' }}>
         
         {/* DENATURATION WARNING BANNER */}
         {isDenatured && (
