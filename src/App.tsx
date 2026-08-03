@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // Default PDB (Lysozyme: 1HEW)
 const DEFAULT_PDB_ID = '1HEW';
 
-export function App() {
+export default function App() {
   const container1Ref = useRef<HTMLDivElement>(null);
   const container2Ref = useRef<HTMLDivElement>(null);
 
