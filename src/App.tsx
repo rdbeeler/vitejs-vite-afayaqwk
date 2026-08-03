@@ -77,6 +77,9 @@ export default function App() {
   const openViewerInstance = useRef<any>(null);
   const closedViewerInstance = useRef<any>(null);
 
+  // Interaction Lock State to prevent recursive feedback loops during synchronization
+  const isSyncingRef = useRef<boolean>(false);
+
   const activeEnzyme = enzymes[selectedKey];
 
   // Check if current environmental conditions cause denaturation
@@ -204,6 +207,50 @@ export default function App() {
       renderStructure(closedViewerInstance.current, activeEnzyme.pdbClosed);
     }
   }, [selectedKey, renderStyle, isDenatured, viewMode, enzymes]);
+
+  // 4. Synchronization Loop for Dual Viewports
+  useEffect(() => {
+    if (viewMode !== 'split') return;
+
+    let animFrameId: number;
+
+    const syncViewers = () => {
+      const v1 = openViewerInstance.current;
+      const v2 = closedViewerInstance.current;
+
+      if (v1 && v2 && !isSyncingRef.current) {
+        // Synchronize from Open (v1) to Closed (v2) if user interacts with Open
+        v1.setTransformCallback(() => {
+          if (isSyncingRef.current) return;
+          isSyncingRef.current = true;
+          const view = v1.getView();
+          v2.setView(view);
+          v2.render();
+          isSyncingRef.current = false;
+        });
+
+        // Synchronize from Closed (v2) to Open (v1) if user interacts with Closed
+        v2.setTransformCallback(() => {
+          if (isSyncingRef.current) return;
+          isSyncingRef.current = true;
+          const view = v2.getView();
+          v1.setView(view);
+          v1.render();
+          isSyncingRef.current = false;
+        });
+      }
+
+      animFrameId = requestAnimationFrame(syncViewers);
+    };
+
+    syncViewers();
+
+    return () => {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (openViewerInstance.current) openViewerInstance.current.setTransformCallback(null);
+      if (closedViewerInstance.current) closedViewerInstance.current.setTransformCallback(null);
+    };
+  }, [viewMode, selectedKey]);
 
   return (
     <div style={{ display: 'flex', width: '100vw', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#0f172a' }}>
@@ -558,7 +605,7 @@ export default function App() {
               fontSize: '12px',
               zIndex: 10
             }}>
-              UNBOUND / PDB 1: {activeEnzyme.pdbOpen}
+              UNBOUND / PDB 1: {activeEnzyme.pdbOpen} {viewMode === 'split' ? '🔗 Synchronized' : ''}
             </div>
             <div ref={openViewerRef} style={{ width: '100%', height: '100%' }} />
           </div>
@@ -579,7 +626,7 @@ export default function App() {
               fontSize: '12px',
               zIndex: 10
             }}>
-              BOUND / PDB 2: {activeEnzyme.pdbClosed}
+              BOUND / PDB 2: {activeEnzyme.pdbClosed} {viewMode === 'split' ? '🔗 Synchronized' : ''}
             </div>
             <div ref={closedViewerRef} style={{ width: '100%', height: '100%' }} />
           </div>
