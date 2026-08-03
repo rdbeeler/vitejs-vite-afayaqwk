@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Default PDB (Lysozyme: 1HEW)
-const DEFAULT_PDB_ID = '1HEW';
+// Default Pair: Adenylate Kinase (4AKE = Open, 1AKE = Closed)
+const DEFAULT_OPEN_PDB = '4AKE';
+const DEFAULT_CLOSED_PDB = '1AKE';
 
-export default function App() {
+export function App() {
   const container1Ref = useRef<HTMLDivElement>(null);
   const container2Ref = useRef<HTMLDivElement>(null);
 
@@ -13,16 +14,19 @@ export default function App() {
   const [viewer1Instance, setViewer1Instance] = useState<any>(null);
   const [viewer2Instance, setViewer2Instance] = useState<any>(null);
 
-  // App States
-  const [pdbIdInput, setPdbIdInput] = useState(DEFAULT_PDB_ID);
-  const [currentPdbId, setCurrentPdbId] = useState(DEFAULT_PDB_ID);
-  const [pdbData, setPdbData] = useState<string>('');
+  // PDB Inputs
+  const [openInput, setOpenInput] = useState(DEFAULT_OPEN_PDB);
+  const [closedInput, setClosedInput] = useState(DEFAULT_CLOSED_PDB);
+
+  // Loaded PDB States
+  const [openPdbId, setOpenPdbId] = useState(DEFAULT_OPEN_PDB);
+  const [closedPdbId, setClosedPdbId] = useState(DEFAULT_CLOSED_PDB);
+
+  const [openPdbData, setOpenPdbData] = useState<string>('');
+  const [closedPdbData, setClosedPdbData] = useState<string>('');
+
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Environmental Parameters
-  const [temp, setTemp] = useState<number>(37); // °C
-  const [ph, setPh] = useState<number>(7.4);
 
   // ------------------------------------------
   // Real-Time Synchronized Viewers Loop (60 FPS)
@@ -54,7 +58,7 @@ export default function App() {
           viewer1Instance.render();
         }
       } catch (err) {
-        // Safe guard against unmounted instances
+        // Safe check
       }
 
       animFrameId = requestAnimationFrame(syncLoop);
@@ -70,12 +74,14 @@ export default function App() {
   }, [viewer1Instance, viewer2Instance]);
 
   // ------------------------------------------
-  // Fetch PDB structure from RCSB API
+  // Fetch Both Open & Closed PDB Structures
   // ------------------------------------------
-  const fetchPdbData = async (targetPdbId: string) => {
-    const cleanId = targetPdbId.trim().toUpperCase();
-    if (cleanId.length !== 4) {
-      setError('Please enter a valid 4-character PDB ID (e.g., 1HEW, 1A2C).');
+  const fetchConformations = async (openId: string, closedId: string) => {
+    const cleanOpen = openId.trim().toUpperCase();
+    const cleanClosed = closedId.trim().toUpperCase();
+
+    if (cleanOpen.length !== 4 || cleanClosed.length !== 4) {
+      setError('Please enter valid 4-character PDB IDs.');
       return;
     }
 
@@ -83,15 +89,25 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await fetch(`https://files.rcsb.org/download/${cleanId}.pdb`);
-      if (!response.ok) {
-        throw new Error(`PDB '${cleanId}' not found on RCSB.`);
-      }
-      const text = await response.text();
-      setPdbData(text);
-      setCurrentPdbId(cleanId);
+      // Fetch both PDB files concurrently
+      const [resOpen, resClosed] = await Promise.all([
+        fetch(`https://files.rcsb.org/download/${cleanOpen}.pdb`),
+        fetch(`https://files.rcsb.org/download/${cleanClosed}.pdb`),
+      ]);
+
+      if (!resOpen.ok) throw new Error(`Open state PDB '${cleanOpen}' not found.`);
+      if (!resClosed.ok) throw new Error(`Closed state PDB '${cleanClosed}' not found.`);
+
+      const textOpen = await resOpen.text();
+      const textClosed = await resClosed.text();
+
+      setOpenPdbData(textOpen);
+      setClosedPdbData(textClosed);
+
+      setOpenPdbId(cleanOpen);
+      setClosedPdbId(cleanClosed);
     } catch (err: any) {
-      setError(err.message || 'Failed to load PDB data.');
+      setError(err.message || 'Failed to fetch PDB structures.');
     } finally {
       setLoading(false);
     }
@@ -99,7 +115,7 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    fetchPdbData(DEFAULT_PDB_ID);
+    fetchConformations(DEFAULT_OPEN_PDB, DEFAULT_CLOSED_PDB);
   }, []);
 
   // ------------------------------------------
@@ -136,108 +152,93 @@ export default function App() {
   }, []);
 
   // ------------------------------------------
-  // Update Visualizations on Data/Parameter Change
+  // Render Open (Left) & Closed (Right) Structures
   // ------------------------------------------
   useEffect(() => {
-    if (!pdbData || !viewer1Ref.current || !viewer2Ref.current) return;
+    if (!openPdbData || !closedPdbData || !viewer1Ref.current || !viewer2Ref.current) return;
 
     const v1 = viewer1Ref.current;
     const v2 = viewer2Ref.current;
 
+    // Window 1: Open Conformation
     v1.clear();
-    v2.clear();
-
-    v1.addModel(pdbData, 'pdb');
-    v2.addModel(pdbData, 'pdb');
-
-    v1.setStyle({}, { cartoon: { color: 'spectrum' } });
+    v1.addModel(openPdbData, 'pdb');
+    v1.setStyle({}, { cartoon: { color: '#89b4fa' } }); // Blue theme for Open
     v1.zoomTo();
     v1.render();
 
-    const isDenatured = temp > 60 || ph < 4 || ph > 10;
-
-    if (isDenatured) {
-      v2.setStyle({}, { cartoon: { color: '#f38ba8', style: 'trace', thickness: 0.8 } });
-    } else {
-      v2.setStyle({}, { cartoon: { color: '#a6e3a1' } });
-    }
-
+    // Window 2: Closed Conformation
+    v2.clear();
+    v2.addModel(closedPdbData, 'pdb');
+    v2.setStyle({}, { cartoon: { color: '#a6e3a1' } }); // Green theme for Closed
     v2.zoomTo();
     v2.render();
-  }, [pdbData, temp, ph]);
+  }, [openPdbData, closedPdbData]);
 
-  const handlePdbSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchPdbData(pdbIdInput);
+    fetchConformations(openInput, closedInput);
+  };
+
+  const handlePreset = (openCode: string, closedCode: string) => {
+    setOpenInput(openCode);
+    setClosedInput(closedCode);
+    fetchConformations(openCode, closedCode);
   };
 
   return (
     <div style={styles.container}>
       {/* HEADER & CONTROLS */}
       <header style={styles.header}>
-        <h1 style={styles.title}>3D Enzyme Visualization Hub</h1>
+        <h1 style={styles.title}>Conformational Change Viewer: Open vs. Closed State</h1>
 
         <div style={styles.controlsRow}>
-          <form onSubmit={handlePdbSubmit} style={styles.form}>
-            <label style={styles.label}>PDB Code:</label>
+          {/* Custom Open / Closed PDB Form */}
+          <form onSubmit={handleSubmit} style={styles.form}>
+            <label style={styles.label}>Open PDB:</label>
             <input
               type="text"
-              value={pdbIdInput}
-              onChange={(e) => setPdbIdInput(e.target.value)}
-              placeholder="e.g. 1HEW"
+              value={openInput}
+              onChange={(e) => setOpenInput(e.target.value)}
               maxLength={4}
               style={styles.input}
             />
+
+            <label style={styles.label}>Closed PDB:</label>
+            <input
+              type="text"
+              value={closedInput}
+              onChange={(e) => setClosedInput(e.target.value)}
+              maxLength={4}
+              style={styles.input}
+            />
+
             <button type="submit" disabled={loading} style={styles.button}>
-              {loading ? 'Fetching...' : 'Load PDB'}
+              {loading ? 'Fetching...' : 'Compare States'}
             </button>
           </form>
 
+          {/* Quick Presets for Common Open/Closed Pairs */}
           <div style={styles.presets}>
-            <span style={styles.label}>Quick Examples:</span>
-            {['1HEW', '1A2C', '2CPA', '1K4T'].map((code) => (
-              <button
-                key={code}
-                onClick={() => {
-                  setPdbIdInput(code);
-                  fetchPdbData(code);
-                }}
-                style={styles.presetButton}
-              >
-                {code}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={styles.slidersRow}>
-          <div style={styles.sliderGroup}>
-            <label style={styles.label}>
-              Temperature: <strong>{temp}°C</strong>
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={temp}
-              onChange={(e) => setTemp(Number(e.target.value))}
-              style={styles.slider}
-            />
-          </div>
-
-          <div style={styles.sliderGroup}>
-            <label style={styles.label}>
-              pH Level: <strong>{ph}</strong>
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={14}
-              step={0.1}
-              value={ph}
-              onChange={(e) => setPh(Number(e.target.value))}
-              style={styles.slider}
-            />
+            <span style={styles.label}>Presets:</span>
+            <button
+              onClick={() => handlePreset('4AKE', '1AKE')}
+              style={styles.presetButton}
+            >
+              Adenylate Kinase (4AKE / 1AKE)
+            </button>
+            <button
+              onClick={() => handlePreset('1OMP', '1ANF')}
+              style={styles.presetButton}
+            >
+              Maltose Binding (1OMP / 1ANF)
+            </button>
+            <button
+              onClick={() => handlePreset('2HEX', '1HKG')}
+              style={styles.presetButton}
+            >
+              Hexokinase (2HEX / 1HKG)
+            </button>
           </div>
         </div>
 
@@ -246,15 +247,15 @@ export default function App() {
 
       {/* SYNCHRONIZED SPLIT VIEWER */}
       <main style={styles.viewerContainer}>
+        {/* Left Window: Open State */}
         <div style={styles.viewerBox}>
-          <div style={styles.badge}>Native State ({currentPdbId})</div>
+          <div style={styles.badgeOpen}>Open State ({openPdbId})</div>
           <div ref={container1Ref} style={styles.canvas} />
         </div>
 
+        {/* Right Window: Closed State */}
         <div style={styles.viewerBox}>
-          <div style={styles.badge}>
-            Simulated Response ({temp}°C, pH {ph})
-          </div>
+          <div style={styles.badgeClosed}>Closed State ({closedPdbId})</div>
           <div ref={container2Ref} style={styles.canvas} />
         </div>
       </main>
@@ -262,6 +263,11 @@ export default function App() {
   );
 }
 
+export default App;
+
+// ------------------------------------------
+// INLINE STYLES
+// ------------------------------------------
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     display: 'flex',
@@ -308,7 +314,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: '#313244',
     color: '#cdd6f4',
     fontSize: '14px',
-    width: '80px',
+    width: '70px',
     textTransform: 'uppercase',
   },
   button: {
@@ -323,29 +329,16 @@ const styles: { [key: string]: React.CSSProperties } = {
   presets: {
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '8px',
   },
   presetButton: {
-    padding: '4px 8px',
+    padding: '4px 10px',
     borderRadius: '4px',
     border: '1px solid #45475a',
     backgroundColor: '#313244',
     color: '#cdd6f4',
     fontSize: '12px',
     cursor: 'pointer',
-  },
-  slidersRow: {
-    display: 'flex',
-    gap: '32px',
-  },
-  sliderGroup: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  slider: {
-    cursor: 'pointer',
-    accentColor: '#89b4fa',
   },
   errorMessage: {
     color: '#f38ba8',
@@ -366,16 +359,32 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: '100%',
     height: '100%',
   },
-  badge: {
+  badgeOpen: {
     position: 'absolute',
     top: '12px',
     left: '12px',
     zIndex: 10,
-    backgroundColor: 'rgba(17, 17, 27, 0.8)',
+    backgroundColor: 'rgba(137, 180, 250, 0.15)',
+    color: '#89b4fa',
     padding: '6px 12px',
     borderRadius: '6px',
     fontSize: '13px',
-    border: '1px solid #45475a',
+    fontWeight: 'bold',
+    border: '1px solid #89b4fa',
+    pointerEvents: 'none',
+  },
+  badgeClosed: {
+    position: 'absolute',
+    top: '12px',
+    left: '12px',
+    zIndex: 10,
+    backgroundColor: 'rgba(166, 227, 161, 0.15)',
+    color: '#a6e3a1',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: 'bold',
+    border: '1px solid #a6e3a1',
     pointerEvents: 'none',
   },
 };
