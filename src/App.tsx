@@ -178,7 +178,7 @@ export default function App() {
       {/* LEFT SIDEBAR */}
       <div style={{ width: '320px', padding: '20px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '18px', boxSizing: 'border-box', overflowY: 'auto' }}>
         <div>
-          <h2 style={{ margin: '0 0 5px 0', fontSize: '20px', color: '#ffffff', fontWeight: 'bold' }}>Enzyme Viewer</h2>
+          <h2 style={{ margin: '0 0 5px 0', fontSize: '20px' }}>Enzyme Viewer</h2>
           <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>Observe active site closure and environmental tolerance:</p>
         </div>
 
