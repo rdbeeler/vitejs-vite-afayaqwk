@@ -1,8 +1,8 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs.plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs.plugin-react'
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // Replace 'vitejs-vite-afayaqwk' with your EXACT GitHub repository name
-  base: '/vitejs-vite-afayaqwk/',
-});
+  base: '/vitejs-vite-ukitnfuz/', // MUST have a slash at the start and end!
+})
