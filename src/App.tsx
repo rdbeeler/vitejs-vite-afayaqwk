@@ -77,6 +77,9 @@ export default function App() {
   const openViewerInstance = useRef<any>(null);
   const closedViewerInstance = useRef<any>(null);
 
+  // Ref to track shared coordinate center across both viewports
+  const sharedCenterRef = useRef<{ x: number; y: number; z: number } | null>(null);
+
   // Sync state reference to track interaction source
   const activeViewerSource = useRef<'open' | 'closed' | null>(null);
 
@@ -122,7 +125,7 @@ export default function App() {
   }, []);
 
   // Helper function to apply styling to a specific viewer instance
-  const renderStructure = (viewer: any, pdbId: string) => {
+  const renderStructure = (viewer: any, pdbId: string, isPrimaryViewport: boolean) => {
     if (!viewer) return;
     const $3Dmol = (window as any).$3Dmol;
 
@@ -156,7 +159,22 @@ export default function App() {
         viewer.setStyle({ hetflag: true }, { stick: { colorscheme: 'yellowCarbon', radius: 0.4 } });
       }
 
+      // Default zoom calculation
       viewer.zoomTo();
+
+      // Shared Pivot Calibration
+      if (isPrimaryViewport) {
+        // Store the master center coordinate from the primary viewer
+        sharedCenterRef.current = viewer.getCenter();
+      } else if (sharedCenterRef.current) {
+        // Force the secondary viewer to pivot around the primary viewer's origin
+        viewer.setCenter([
+          sharedCenterRef.current.x,
+          sharedCenterRef.current.y,
+          sharedCenterRef.current.z
+        ]);
+      }
+
       viewer.render();
     });
   };
@@ -197,7 +215,7 @@ export default function App() {
     }
   }, [viewMode]);
 
-  // 2. Initialize and Render Open Viewer
+  // 2. Initialize and Render Open Viewer (Primary)
   useEffect(() => {
     if (!(window as any).$3Dmol || !(window as any).$) return;
     const $3Dmol = (window as any).$3Dmol;
@@ -207,11 +225,11 @@ export default function App() {
       if (!openViewerInstance.current) {
         openViewerInstance.current = $3Dmol.createViewer($(openViewerRef.current), { backgroundColor: '#ffffff' });
       }
-      renderStructure(openViewerInstance.current, activeEnzyme.pdbOpen);
+      renderStructure(openViewerInstance.current, activeEnzyme.pdbOpen, true);
     }
   }, [selectedKey, renderStyle, isDenatured, viewMode, enzymes, statusText]);
 
-  // 3. Initialize and Render Closed Viewer
+  // 3. Initialize and Render Closed Viewer (Secondary)
   useEffect(() => {
     if (!(window as any).$3Dmol || !(window as any).$) return;
     const $3Dmol = (window as any).$3Dmol;
@@ -221,7 +239,7 @@ export default function App() {
       if (!closedViewerInstance.current) {
         closedViewerInstance.current = $3Dmol.createViewer($(closedViewerRef.current), { backgroundColor: '#ffffff' });
       }
-      renderStructure(closedViewerInstance.current, activeEnzyme.pdbClosed);
+      renderStructure(closedViewerInstance.current, activeEnzyme.pdbClosed, false);
     }
   }, [selectedKey, renderStyle, isDenatured, viewMode, enzymes, statusText]);
 
